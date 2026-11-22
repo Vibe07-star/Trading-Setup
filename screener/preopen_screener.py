@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Daily pre-open screener for the large/midcap GAP-UP FADE (see backtest/RESULTS.md, round 2).
+"""Daily pre-open screener for the large/midcap GAP-UP FADE (see backtest/RESULTS.md).
 
 Rule (identical to the backtest):
   universe : top 250 NSE EQ stocks by mean traded value over the last 60 sessions, prev close >= Rs 50

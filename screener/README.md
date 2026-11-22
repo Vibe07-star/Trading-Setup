@@ -1,6 +1,6 @@
 # Pre-open gap-fade screener
 
-Implements the best intraday rule from `backtest/RESULTS.md` (round 2): short the large/midcap stocks with the
+Implements the best intraday rule from `backtest/RESULTS.md`: short the large/midcap stocks with the
 biggest gap-up at the open, cover before the close.
 
 ## Daily routine (IST)
