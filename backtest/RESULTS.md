@@ -79,3 +79,19 @@ Simple rules vs base (72%/yr, Sharpe 3.3, DD −15.7%, last 12m +13%):
 | Skip days India VIX < 12 | 69% | 3.4 | −15.7% | +14.1% | +15.0% | −25.6% |
 | All three | 63% | 3.5 | −9.5% | +11.8% | +13.2% | −11.6% |
 Caveat: these rules were chosen after looking at the full sample (both periods), so expect less in live trading.
+
+## First hour only: cover at 10:15 (`first_hour.py`)
+Same entry (auction open), picks and filters; exit price at 10:15 from Yahoo hourly bars rescaled to NSE prices
+(Dec 2023 – Nov 2026, 4,128 trades, Rs 5L, Zerodha costs, 0.05% exit slippage).
+
+| Exit | Return/yr | Sharpe | Max DD | First year | Last 12 months |
+|---|---|---|---|---|---|
+| 10:15 (first hour only) | 28% | 2.3 | −9.7% | +76% | −3.2% |
+| 11:15 | 37% | 2.7 | −7.1% | +93% | +4.0% |
+| 12:15 | 40% | 2.7 | −9.8% | +106% | +1.2% |
+| 15:15 (current setup) | 51% | 2.9 | −10.3% | +124% | +11.2% |
+| 10:15 + 1% stop | 23% | 2.7 | −4.6% | +60% | −1.0% |
+
+About 70% of the gross fall happens in the first hour (avg +0.49% of +0.67% in the first year; +0.20% of +0.28% in the
+last year), but costs are the same, so the first-hour-only version keeps far less after costs and lost money over the last 12 months.
+The 5-minute data (last 60 sessions) agrees: covering at 09:30–10:15 lost money, covering at 15:15 made money.
