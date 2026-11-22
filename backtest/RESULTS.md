@@ -53,3 +53,29 @@ Last 12 months: +13% (Sharpe 0.7, 7 of 13 months positive); with exact 15:15 exi
 - Needs the auction fill (entering after 09:15 removed most of the edge) and intraday shortability of each name.
 
 Recommendation: paper-trade first, use a 5% stop, judge on rolling 3–6 months, stop if a 3-month window is negative after costs.
+
+## Do news, fundamentals or external factors help? (`factor_analysis.py`)
+
+Data added (all known before 09:07 IST): 359k NSE corporate announcements with timestamps for the 668 traded stocks
+(results / material event / routine, released between the previous close and the pre-open); S&P 500, Nasdaq, VIX,
+crude, gold, USD/INR, dollar index, US 10y (last close before the session); India VIX, Nifty trend; FII index-futures
+long ratio (NSE participant OI); F&O membership and sector (current NSE lists).
+Method: per-trade net return by bucket in 2021-24 vs 2025-26, yearly rank correlation, walk-forward ridge model.
+
+Findings
+- News: no stable effect. Overnight results news: +0.56%/trade vs +0.41% without (2021-24) but +0.21% vs +0.26% (2025-26).
+  Gaps on news fade about as much as gaps without news in large/midcaps. Filtering on news lowers returns (62-45%/yr vs 72%).
+- External factors: every correlation is tiny (|IC| < 0.1). Most consistent: higher India VIX = better (6/6 years),
+  crude up overnight = worse (5/6), gold up = worse (5/6), Nifty up yesterday = worse (5/6).
+- Walk-forward model on all features: dropping its worst-predicted third reduced returns in 4 of 5 years.
+- Stock traits: Metals & Mining loses in both periods (−0.15%/trade): their gaps carry real overnight commodity news.
+  F&O-only names avoid circuit risk but return far less (27%/yr, 2026 −15%).
+
+Simple rules vs base (72%/yr, Sharpe 3.3, DD −15.7%, last 12m +13%):
+| Rule | Return/yr | Sharpe | Max DD | 2026 YTD | Last 12m | Circuit-stress worst month |
+|---|---|---|---|---|---|---|
+| Skip Metals & Mining | 74% | 3.5 | −12.4% | +12.9% | +18.2% | −18.2% |
+| Skip days crude > +2% overnight | 67% | 3.3 | −10.3% | +8.2% | +13.0% | −13.4% |
+| Skip days India VIX < 12 | 69% | 3.4 | −15.7% | +14.1% | +15.0% | −25.6% |
+| All three | 63% | 3.5 | −9.5% | +11.8% | +13.2% | −11.6% |
+Caveat: these rules were chosen after looking at the full sample (both periods), so expect less in live trading.
