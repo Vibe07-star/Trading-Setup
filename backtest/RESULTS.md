@@ -42,3 +42,32 @@ Execution checks (Yahoo intraday, `entry_delay.py`, `exit_time.py`):
 - Exit at 15:15 is as good as / better than the official close; exiting at day VWAP is much worse.
 - No feature filter (prior returns, volume, trend, 52w high, delivery, weekday, market gap) is stable across 2020-24 vs 2025-26.
 - Gross edge positive in 24/25 quarters; weak 2026 Q2–Q3 (+16, +7 bps/day gross), Q4-to-date +38.
+
+---
+
+## Round 3: backtest of the pre-open screener exactly as traded (`screener_backtest.py`)
+
+Setup: screener universe (calendar-correct 60-session turnover, top 250), up to 10 shorts with gap 1–15%, fixed
+capital/10 per name (no leverage), fill at the auction open, exit at LAST (≈15:30) or exact 15:15 (Yahoo, last ~2y),
+full Zerodha MIS charges + 0.03% exit slippage. Dec 2020 – Nov 2026: 1,466 sessions, 1,443 trade days, 11,605 trades.
+
+| Rs 5 lakh, no stop | Value |
+|---|---|
+| Avg return per session (of capital) | +0.29% |
+| Simple annual return | 72% |
+| Sharpe | 3.3 |
+| Winning days / positive months | 59.5% / 60 of 72 |
+| Max drawdown (of starting capital) | −15.7% |
+| Worst day / worst month | −5.8% / −8.4% |
+| Trade win rate / avg win / avg loss | 59.8% / +2.39% / −2.63% |
+| Avg all-in cost per trade | 0.136% |
+
+By year (% of capital): 2021 +100, 2022 +85, 2023 +49, 2024 +90, 2025 +82, 2026 YTD +8.6 (max DD −10.5%).
+Last 12 months: +13% (Sharpe 0.7, 7 of 13 months positive). With exact 15:15 exit: last 12 months +6.7%.
+
+Sensitivities: capital Rs 2L → 25L: 71% → 83%/yr (brokerage cap). Exit slippage 0.10%: 59%/yr.
+Noisy 09:03 signal (sd 0.5%): 0.26%/day vs 0.29%. Missing 25% of days at random: 55%/yr.
+Stops (assumed hit whenever the day's high reaches them): 3% → 62%/yr, DD −10.8%, but −5.9% in the last 12m (15:15 exit);
+5% → 69%/yr, DD −13.9%, last 12m +3.9% (LAST) / −2.0% (15:15).
+Upper-circuit risk: 80 trades (7–23/yr) closed locked at the high after a ≥9.5% rise. If each settled in the
+short-delivery auction at close+20%: 43%/yr, worst month −25.6%. A 5% stop exits 85% of those first.
