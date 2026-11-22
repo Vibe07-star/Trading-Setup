@@ -13,13 +13,17 @@ biggest gap-up at the open, cover before the close.
 | 15:15–15:20 | Cover (buy back) every position |
 | after 18:00 | `python3 screener/preopen_screener.py --review YYYY-MM-DD` to log the day's result from NSE bhavcopy |
 
-No list / "NO TRADE" means no stock gapped up >= 1%: stay flat that day.
+"NO TRADE" (crude filter) or an empty list (no stock gapped up >= 1%) means stay flat that day.
 
 ## Rule
 - Universe: top 250 NSE EQ stocks by mean traded value over the last 60 sessions, previous close >= Rs 50.
 - Gap = pre-open IEP / previous close − 1; relative gap = gap − median gap of the universe.
 - Picks: up to 10 names with the highest relative gap and raw gap between +1% and +15%.
 - Size: equal rupees per name (default 1/10 of `--capital`).
+- Filter 1: Metals & Mining stocks are excluded (Nifty 500 industry tag); their gaps carry real overnight commodity news.
+  Turn off with `--no-metal-filter`.
+- Filter 2: no trade at all if WTI crude rose more than 2% in its last session; cuts the worst drawdowns.
+  Turn off with `--no-crude-filter`. If crude prices can't be fetched the screener warns: check crude yourself.
 
 ## Requirements
 Python 3.9+, `pandas`, `requests`. The first run downloads ~60 bhavcopy files from nsearchives.nseindia.com into `screener/cache/`.

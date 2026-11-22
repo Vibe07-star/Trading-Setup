@@ -6,6 +6,8 @@ Rule (identical to the backtest):
   gap      : pre-open IEP / previous close - 1
   rel gap  : gap - median gap of the universe
   picks    : 10 highest rel gap with 1% <= raw gap < 15%
+  filters  : skip Metals & Mining stocks (Nifty 500 industry tag)        -> disable with --no-metal-filter
+             no trade at all if WTI crude rose > 2% in the last session  -> disable with --no-crude-filter
   trade    : SHORT (MIS) equal amounts inside the pre-open auction (order entry closes 09:07-09:08 IST),
              cover everything 15:15-15:20.
 
@@ -32,6 +34,10 @@ LOGS = os.path.join(HERE, "logs")
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 PREOPEN_URL = "https://www.nseindia.com/api/market-data-pre-open?key=ALL"
 BHAV_URL = "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_{:%d%m%Y}.csv"
+N500_URL = "https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv"
+CRUDE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/CL=F?range=15d&interval=1d"
+SKIP_SECTORS = {"Metals & Mining"}
+CRUDE_MAX = 0.02
 
 TOP_N, MIN_PX, LOOKBACK = 250, 50.0, 60
 K, GAP_MIN, GAP_MAX = 10, 0.01, 0.15
@@ -88,6 +94,43 @@ def universe(asof):
     return set(tv.index[:TOP_N]), len(frames), max(f.day.iloc[0] for f in frames)
 
 
+def sector_map():
+    """Symbol -> industry from the Nifty 500 list (cached per day)."""
+    os.makedirs(CACHE, exist_ok=True)
+    f = os.path.join(CACHE, f"n500_{dt.datetime.now(IST):%Y%m%d}.csv")
+    if not os.path.exists(f):
+        try:
+            r = S.get(N500_URL, timeout=20)
+            if r.status_code == 200 and r.text.startswith("Company"):
+                open(f, "w").write(r.text)
+        except requests.RequestException:
+            pass
+    if not os.path.exists(f):                       # fall back to the newest cached copy
+        old = sorted(x for x in os.listdir(CACHE) if x.startswith("n500_"))
+        if not old:
+            return None
+        f = os.path.join(CACHE, old[-1])
+    x = pd.read_csv(f)
+    return dict(zip(x.Symbol.str.strip(), x.Industry.str.strip()))
+
+
+def crude_last_session(trade_day):
+    """WTI crude (CL=F) return of the last daily bar dated before trade_day, vs the bar before it."""
+    try:
+        r = requests.get(CRUDE_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        res = r.json()["chart"]["result"][0]
+        tz = ZoneInfo(res["meta"].get("exchangeTimezoneName", "America/New_York"))
+        bars = pd.Series(res["indicators"]["quote"][0]["close"],
+                         index=[dt.datetime.fromtimestamp(t, tz).date() for t in res["timestamp"]]).dropna()
+        bars = bars[~bars.index.duplicated(keep="last")]
+        bars = bars[[d < trade_day for d in bars.index]]
+        if len(bars) < 2:
+            return None, None
+        return bars.iloc[-1] / bars.iloc[-2] - 1, bars.index[-1]
+    except Exception:
+        return None, None
+
+
 def fetch_preopen(path=None):
     if path:
         return json.load(open(path))
@@ -106,7 +149,7 @@ def fetch_preopen(path=None):
 
 
 # ---------------------------------------------------------------- screen
-def screen(po, univ):
+def screen(po, univ, skip_syms=frozenset()):
     rows = []
     for item in po["data"]:
         m = item["metadata"]
@@ -123,13 +166,18 @@ def screen(po, univ):
     live = df[df.qty > 0]                       # stocks with a discovered auction price
     med = live.gap.median()
     df["rel_gap"] = df.gap - med
-    cand = df[(df.qty > 0) & (df.gap >= GAP_MIN) & (df.gap < GAP_MAX)]
+    cand = df[(df.qty > 0) & (df.gap >= GAP_MIN) & (df.gap < GAP_MAX) & ~df.symbol.isin(skip_syms)]
+    skipped = df[(df.qty > 0) & (df.gap >= GAP_MIN) & (df.gap < GAP_MAX) & df.symbol.isin(skip_syms)]
     picks = cand.sort_values("rel_gap", ascending=False).head(K).reset_index(drop=True)
-    return picks, med, len(df), len(live)
+    return picks, med, len(df), len(live), sorted(skipped.symbol)
 
 
-def show(picks, med, n_univ, n_live, stamp, capital):
+def show(picks, med, n_univ, n_live, stamp, capital, skipped=(), no_trade_reason=None):
     print(f"\nNSE pre-open snapshot {stamp}  |  universe matched {n_univ} (with IEP {n_live})  |  median gap {med*100:+.2f}%")
+    if skipped:
+        print(f"Metals & Mining gap-ups excluded: {', '.join(skipped)}")
+    if no_trade_reason:
+        print(f"*** NO TRADE today: {no_trade_reason}. List below is for information only. ***")
     if picks.empty:
         print("No stock meets the rule (raw gap >= 1%). -> NO TRADE today.")
         return picks
@@ -145,8 +193,9 @@ def show(picks, med, n_univ, n_live, stamp, capital):
     if len(p) < K:
         print(f"Only {len(p)} names qualify. Sizing here stays at 1/{K} of capital per name (more conservative); "
               "the backtest returns assume the capital is split across however many names qualify.")
-    print("Action: SELL (MIS, market/limit) each name before pre-open order entry closes (~09:07); "
-          "cover all at 15:15-15:20.")
+    if not no_trade_reason:
+        print("Action: SELL (MIS, market/limit) each name before pre-open order entry closes (~09:07); "
+              "cover all at 15:15-15:20.")
     return p
 
 
@@ -161,6 +210,11 @@ def review(day, cost):
     if not os.path.exists(f):
         sys.exit(f"No log for {day}: {f}")
     picks = pd.read_csv(f)
+    if picks.empty:
+        sys.exit(f"{day}: no picks were logged (no stock qualified).")
+    nt = picks.get("no_trade")
+    if nt is not None and isinstance(nt.iloc[0], str) and nt.iloc[0]:
+        print(f"NOTE: {day} was a NO TRADE day ({nt.iloc[0]}). Figures below are hypothetical.")
     b = bhav(day)
     if b is None:
         sys.exit(f"Bhavcopy for {day} not published yet (usually after ~18:00 IST).")
@@ -186,6 +240,8 @@ def main():
     ap.add_argument("--file", help="saved pre-open JSON instead of fetching live")
     ap.add_argument("--asof", help="trade date YYYY-MM-DD for universe (default: today IST / snapshot date)")
     ap.add_argument("--review", help="YYYY-MM-DD: P&L of logged picks using that day's bhavcopy")
+    ap.add_argument("--no-metal-filter", action="store_true", help="do not exclude Metals & Mining stocks")
+    ap.add_argument("--no-crude-filter", action="store_true", help="trade even if crude rose > 2%% overnight")
     ap.add_argument("--cost", type=float, default=0.0012, help="round-trip cost fraction for --review (default 0.12%%)")
     a = ap.parse_args()
 
@@ -198,14 +254,30 @@ def main():
     asof = dt.date.fromisoformat(a.asof) if a.asof else snap_day
     univ, ndays, last = universe(asof)
     print(f"Universe: top {TOP_N} by {ndays}-session mean turnover up to {last} ({len(univ)} names)")
+    skip_syms = frozenset()
+    if not a.no_metal_filter:
+        sm = sector_map()
+        if sm is None:
+            print("WARNING: could not load the Nifty 500 sector list - metal filter NOT applied.")
+        else:
+            skip_syms = frozenset(k for k, v in sm.items() if v in SKIP_SECTORS)
+    no_trade = None
+    if not a.no_crude_filter:
+        cr, cday = crude_last_session(asof)
+        if cr is None:
+            print("WARNING: could not fetch crude oil prices - crude filter NOT applied. Check crude manually (skip if > +2%).")
+        else:
+            print(f"WTI crude last session ({cday}): {cr*100:+.2f}%  (filter: no trade if > +{CRUDE_MAX*100:.0f}%)")
+            if cr > CRUDE_MAX:
+                no_trade = f"crude oil rose {cr*100:+.2f}% in the last session"
     now = dt.datetime.now(IST)
     if not a.file and snap_day != now.date():
         print(f"NOTE: NSE is serving the pre-open snapshot of {snap_day} (no pre-open session yet today). "
               "Run between 09:00 and 09:08 IST on a trading day for live picks.")
     while True:
-        picks, med, n_univ, n_live = screen(po, univ)
-        p = show(picks, med, n_univ, n_live, stamp, a.capital)
-        log(p, snap_day, stamp)
+        picks, med, n_univ, n_live, skipped = screen(po, univ, skip_syms)
+        p = show(picks, med, n_univ, n_live, stamp, a.capital, skipped, no_trade)
+        log(p.assign(no_trade=no_trade or ""), snap_day, stamp)
         now = dt.datetime.now(IST)
         if not a.watch or a.file or now.time() >= dt.time(9, 8) or snap_day != now.date():
             break
